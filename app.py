@@ -89,20 +89,29 @@ def listar_productos():
         conn = get_connection()
         cursor = conn.cursor()
 
+        # 1. Ajustamos la consulta para que coincida con tus columnas reales
+        # Nota: He quitado imagen_url porque no se ve en tu tabla, 
+        # y agregado Stock y version.
         cursor.execute("""
-            SELECT TOP 20 id, nombre, precio, imagen_url
+            SELECT TOP 20 Id, Nombre, Precio, Stock, version, Versions
             FROM productos
-            ORDER BY id DESC
+            ORDER BY Id DESC
         """)
         rows = cursor.fetchall()
 
         data = []
         for row in rows:
+            # 2. Manejo especial para la columna 'Versions' (binary)
+            # La convertimos a hexadecimal string para que JSON la acepte
+            version_hex = row[5].hex() if row[5] else None
+
             data.append({
                 "id": row[0],
                 "nombre": row[1],
-                "precio": float(row[2]) if row[2] is not None else None,
-                "imagen_url": row[3],
+                "precio": float(row[2]) if row[2] is not None else 0.0,
+                "stock": row[3],
+                "version_simple": row[4],
+                "row_version": f"0x{version_hex}" if version_hex else None
             })
 
         return jsonify({
