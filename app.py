@@ -89,11 +89,9 @@ def listar_productos():
         conn = get_connection()
         cursor = conn.cursor()
 
-        # 1. Ajustamos la consulta para que coincida con tus columnas reales
-        # Nota: He quitado imagen_url porque no se ve en tu tabla, 
-        # y agregado Stock y version.
+        # Agregamos url_imagen a la consulta
         cursor.execute("""
-            SELECT TOP 20 Id, Nombre, Precio, Stock, version, Versions
+            SELECT TOP 20 Id, Nombre, Precio, Stock, url_imagen, Versions
             FROM productos
             ORDER BY Id DESC
         """)
@@ -101,8 +99,7 @@ def listar_productos():
 
         data = []
         for row in rows:
-            # 2. Manejo especial para la columna 'Versions' (binary)
-            # La convertimos a hexadecimal string para que JSON la acepte
+            # Versions (binary) a Hex para JSON
             version_hex = row[5].hex() if row[5] else None
 
             data.append({
@@ -110,7 +107,7 @@ def listar_productos():
                 "nombre": row[1],
                 "precio": float(row[2]) if row[2] is not None else 0.0,
                 "stock": row[3],
-                "version_simple": row[4],
+                "imagen_url": row[4], # Aquí capturamos la URL de internet
                 "row_version": f"0x{version_hex}" if version_hex else None
             })
 
@@ -125,10 +122,8 @@ def listar_productos():
             "error": str(e)
         }), 500
     finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 
 if __name__ == "__main__":
