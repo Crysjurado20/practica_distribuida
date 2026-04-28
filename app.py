@@ -1,5 +1,6 @@
 import os
 from flask import Flask, jsonify
+from flask import request
 from mssql_python import connect
 
 app = Flask(__name__)
@@ -80,6 +81,31 @@ def test_db():
         if conn:
             conn.close()
 
+@app.route("/enviar-alerta", methods=["POST"])
+def enviar_alerta():
+    try:
+        data = request.get_json()
+        destino = data.get("to")
+        asunto = data.get("subject")
+        mensaje = data.get("message")
+
+        if not destino or not asunto or not mensaje:
+            return jsonify({
+                "success": False,
+                "message": "Faltan datos"
+            }), 400
+
+        enviar_correo_alerta(asunto, mensaje, destino)
+
+        return jsonify({
+            "success": True,
+            "message": "Correo enviado"
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 @app.route("/productos")
 def listar_productos():
@@ -107,7 +133,7 @@ def listar_productos():
                 "nombre": row[1],
                 "precio": float(row[2]) if row[2] is not None else 0.0,
                 "stock": row[3],
-                "imagen_url": row[4], # Aquí capturamos la URL de internet
+                "imagen_url": row[4],
                 "row_version": f"0x{version_hex}" if version_hex else None
             })
 
@@ -124,6 +150,7 @@ def listar_productos():
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
+
 
 
 if __name__ == "__main__":
