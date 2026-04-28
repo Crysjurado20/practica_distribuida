@@ -4,6 +4,7 @@ from flask_cors import CORS
 import smtplib
 import ssl
 from email.mime.text import MIMEText
+import socket
 from mssql_python import connect
 
 app = Flask(__name__)
@@ -70,6 +71,26 @@ def enviar_correo_alerta(asunto, mensaje, destino):
         raise RuntimeError(f"Error de red al conectar con SMTP: {e}")
     except smtplib.SMTPException as e:
         raise RuntimeError(f"Error SMTP: {e}")
+
+
+@app.route("/test-smtp")
+def test_smtp():
+    """Prueba de conectividad TCP hacia el servidor SMTP configurado.
+
+    Útil para diagnosticar errores tipo `[Errno 101] Network is unreachable`.
+    """
+    host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    try:
+        port = int(os.getenv("SMTP_PORT", "587"))
+    except ValueError:
+        return jsonify({"success": False, "message": "SMTP_PORT inválido"}), 400
+
+    try:
+        # Intentar conexión TCP simple
+        with socket.create_connection((host, port), timeout=5):
+            return jsonify({"success": True, "message": f"Conectado a {host}:{port}"})
+    except Exception as e:
+        return jsonify({"success": False, "message": "No se pudo conectar", "error": str(e)}), 500
 
 
 
