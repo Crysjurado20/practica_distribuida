@@ -1,10 +1,7 @@
 import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-import smtplib
-import ssl
-from email.mime.text import MIMEText
-import socket
+import requests
 from mssql_python import connect
 
 app = Flask(__name__)
@@ -43,54 +40,46 @@ def get_connection():
 
 
 def enviar_correo_alerta(asunto, mensaje, destino):
-    email_user = os.getenv("EMAIL_USER") or os.getenv("SMTP_USER")
-    email_password = os.getenv("EMAIL_PASSWORD") or os.getenv("SMTP_PASS")
+    resend_api_key = os.getenv("RESEND_API_KEY")
+    resend_from = os.getenv("RESEND_FROM_EMAIL") or os.getenv("FROM_EMAIL")
 
-    if not email_user:
-        raise ValueError("Falta EMAIL_USER")
-    if not email_password:
-        raise ValueError("Falta EMAIL_PASSWORD")
+    if not resend_api_key:
+        raise ValueError("Falta RESEND_API_KEY")
+    if not resend_from:
+        raise ValueError("Falta RESEND_FROM_EMAIL")
 
-    host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    port = int(os.getenv("SMTP_PORT", "587"))
+    url = "https://api.resend.com/emails"
+    headers = {
+        "Authorization": f"Bearer {resend_api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "from": resend_from,
+        "to": [destino],
+        "subject": asunto,
+        "text": mensaje,
+    }
 
-    # Construir el mensaje
-    msg = MIMEText(mensaje, "plain", "utf-8")
-    msg["Subject"] = asunto
-    msg["From"] = email_user
-    msg["To"] = destino
-
-    try:
-        servidor = smtplib.SMTP(host, port, timeout=10)
-        servidor.starttls()
-        servidor.login(email_user, email_password)
-        servidor.sendmail(email_user, [destino], msg.as_string())
-        servidor.quit()
-    except OSError as e:
-        # errores de red, p. ej. [Errno 101] Network is unreachable
-        raise RuntimeError(f"Error de red al conectar con SMTP: {e}")
-    except smtplib.SMTPException as e:
-        raise RuntimeError(f"Error SMTP: {e}")
+    resp = requests.post(url, json=payload, headers=headers, timeout=15)
+    if resp.status_code not in (200, 201):
+        raise RuntimeError(f"Error al enviar con Resend: {resp.status_code} {resp.text}")
 
 
-@app.route("/test-smtp")
-def test_smtp():
-    """Prueba de conectividad TCP hacia el servidor SMTP configurado.
+@app.route("/test-resend")
+def test_resend():
+    resend_api_key = os.getenv("RESEND_API_KEY")
+    resend_from = os.getenv("RESEND_FROM_EMAIL") or os.getenv("FROM_EMAIL")
 
-    Útil para diagnosticar errores tipo `[Errno 101] Network is unreachable`.
-    """
-    host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    try:
-        port = int(os.getenv("SMTP_PORT", "587"))
-    except ValueError:
-        return jsonify({"success": False, "message": "SMTP_PORT inválido"}), 400
+    if not resend_api_key:
+        return jsonify({"success": False, "message": "Falta RESEND_API_KEY"}), 400
+    if not resend_from:
+        return jsonify({"success": False, "message": "Falta RESEND_FROM_EMAIL"}), 400
 
-    try:
-        # Intentar conexión TCP simple
-        with socket.create_connection((host, port), timeout=5):
-            return jsonify({"success": True, "message": f"Conectado a {host}:{port}"})
-    except Exception as e:
-        return jsonify({"success": False, "message": "No se pudo conectar", "error": str(e)}), 500
+    return jsonify({
+        "success": True,
+        "message": "Variables de Resend configuradas correctamente",
+        "from": resend_from,
+    })
 
 
 
