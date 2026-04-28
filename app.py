@@ -3,7 +3,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import smtplib
 import ssl
-from email.message import EmailMessage
+from email.mime.text import MIMEText
 from mssql_python import connect
 
 app = Flask(__name__)
@@ -42,38 +42,35 @@ def get_connection():
 
 
 def enviar_correo_alerta(asunto, mensaje, destino):
-    """Envía un correo usando SMTP configurado por variables de entorno.
+    email_user = os.getenv("EMAIL_USER") or os.getenv("SMTP_USER")
+    email_password = os.getenv("EMAIL_PASSWORD") or os.getenv("SMTP_PASS")
 
-    Variables esperadas:
-    - SMTP_HOST
-    - SMTP_PORT (opcional, por defecto 587)
-    - SMTP_USER
-    - SMTP_PASS
-    - FROM_EMAIL (opcional, por defecto SMTP_USER)
-    """
-    host = os.getenv("SMTP_HOST")
+    if not email_user:
+        raise ValueError("Falta EMAIL_USER")
+    if not email_password:
+        raise ValueError("Falta EMAIL_PASSWORD")
+
+    host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     port = int(os.getenv("SMTP_PORT", "587"))
-    user = os.getenv("SMTP_USER")
-    password = os.getenv("SMTP_PASS")
-    from_email = os.getenv("FROM_EMAIL") or user
 
-    if not host or not user or not password or not from_email:
-        raise ValueError("Faltan variables de entorno para SMTP (SMTP_HOST/SMTP_USER/SMTP_PASS/FROM_EMAIL)")
-
-    msg = EmailMessage()
-    msg["From"] = from_email
-    msg["To"] = destino
+    # Construir el mensaje
+    msg = MIMEText(mensaje, "plain", "utf-8")
     msg["Subject"] = asunto
-    msg.set_content(mensaje)
+    msg["From"] = email_user
+    msg["To"] = destino
 
-    context = ssl.create_default_context()
     try:
-        with smtplib.SMTP(host, port, timeout=10) as server:
-            server.starttls(context=context)
-            server.login(user, password)
-            server.send_message(msg)
-    except Exception:
-        raise
+        servidor = smtplib.SMTP(host, port, timeout=10)
+        servidor.starttls()
+        servidor.login(email_user, email_password)
+        servidor.sendmail(email_user, [destino], msg.as_string())
+        servidor.quit()
+    except OSError as e:
+        # errores de red, p. ej. [Errno 101] Network is unreachable
+        raise RuntimeError(f"Error de red al conectar con SMTP: {e}")
+    except smtplib.SMTPException as e:
+        raise RuntimeError(f"Error SMTP: {e}")
+
 
 
 @app.route("/")
