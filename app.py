@@ -1,9 +1,15 @@
 import os
-from flask import Flask, jsonify
-from flask import request
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+import smtplib
+import ssl
+from email.message import EmailMessage
 from mssql_python import connect
 
 app = Flask(__name__)
+
+# Habilitar CORS para permitir peticiones desde el front-end
+CORS(app)
 
 
 def get_connection():
@@ -33,6 +39,41 @@ def get_connection():
     )
 
     return connect(connection_string)
+
+
+def enviar_correo_alerta(asunto, mensaje, destino):
+    """Envía un correo usando SMTP configurado por variables de entorno.
+
+    Variables esperadas:
+    - SMTP_HOST
+    - SMTP_PORT (opcional, por defecto 587)
+    - SMTP_USER
+    - SMTP_PASS
+    - FROM_EMAIL (opcional, por defecto SMTP_USER)
+    """
+    host = os.getenv("SMTP_HOST")
+    port = int(os.getenv("SMTP_PORT", "587"))
+    user = os.getenv("SMTP_USER")
+    password = os.getenv("SMTP_PASS")
+    from_email = os.getenv("FROM_EMAIL") or user
+
+    if not host or not user or not password or not from_email:
+        raise ValueError("Faltan variables de entorno para SMTP (SMTP_HOST/SMTP_USER/SMTP_PASS/FROM_EMAIL)")
+
+    msg = EmailMessage()
+    msg["From"] = from_email
+    msg["To"] = destino
+    msg["Subject"] = asunto
+    msg.set_content(mensaje)
+
+    context = ssl.create_default_context()
+    try:
+        with smtplib.SMTP(host, port, timeout=10) as server:
+            server.starttls(context=context)
+            server.login(user, password)
+            server.send_message(msg)
+    except Exception:
+        raise
 
 
 @app.route("/")
