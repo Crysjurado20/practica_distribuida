@@ -2,6 +2,8 @@ import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import requests
+import base64
+from email.mime.text import MIMEText
 from mssql_python import connect
 
 app = Flask(__name__)
@@ -40,45 +42,102 @@ def get_connection():
 
 
 def enviar_correo_alerta(asunto, mensaje, destino):
-    resend_api_key = os.getenv("RESEND_API_KEY")
-    resend_from = os.getenv("RESEND_FROM_EMAIL") or os.getenv("FROM_EMAIL")
+    client_id = os.getenv("GMAIL_CLIENT_ID")
+    client_secret = os.getenv("GMAIL_CLIENT_SECRET")
+    refresh_token = os.getenv("GMAIL_REFRESH_TOKEN")
+    from_email = os.getenv("FROM_EMAIL")
 
-    if not resend_api_key:
-        raise ValueError("Falta RESEND_API_KEY")
-    if not resend_from:
-        raise ValueError("Falta RESEND_FROM_EMAIL")
+    if not client_id:
+        raise ValueError("Falta GMAIL_CLIENT_ID")
+    if not client_secret:
+        raise ValueError("Falta GMAIL_CLIENT_SECRET")
+    if not refresh_token:
+        raise ValueError("Falta GMAIL_REFRESH_TOKEN")
+    if not from_email:
+        raise ValueError("Falta FROM_EMAIL")
 
-    url = "https://api.resend.com/emails"
-    headers = {
-        "Authorization": f"Bearer {resend_api_key}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "from": resend_from,
-        "to": [destino],
-        "subject": asunto,
-        "text": mensaje,
-    }
+    # 1) Obtener access token desde refresh token
+    token_resp = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        },
+        timeout=15,
+    )
+    if token_resp.status_code != 200:
+        raise RuntimeError(f"Error obteniendo access token: {token_resp.status_code} {token_resp.text}")
 
-    resp = requests.post(url, json=payload, headers=headers, timeout=15)
-    if resp.status_code not in (200, 201):
-        raise RuntimeError(f"Error al enviar con Resend: {resp.status_code} {resp.text}")
+    access_token = token_resp.json().get("access_token")
+    if not access_token:
+        raise RuntimeError("Google no devolvió access_token")
+
+    # 2) Construir correo RFC822 y codificarlo en base64 URL-safe
+    msg = MIMEText(mensaje, "plain", "utf-8")
+    msg["To"] = destino
+    msg["From"] = from_email
+    msg["Subject"] = asunto
+    raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+
+    # 3) Enviar por Gmail API
+    send_resp = requests.post(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        json={"raw": raw_message},
+        timeout=15,
+    )
+    if send_resp.status_code not in (200, 202):
+        raise RuntimeError(f"Error al enviar con Gmail API: {send_resp.status_code} {send_resp.text}")
 
 
-@app.route("/test-resend")
-def test_resend():
-    resend_api_key = os.getenv("RESEND_API_KEY")
-    resend_from = os.getenv("RESEND_FROM_EMAIL") or os.getenv("FROM_EMAIL")
+@app.route("/test-gmail-api")
+def test_gmail_api():
+    client_id = os.getenv("GMAIL_CLIENT_ID")
+    client_secret = os.getenv("GMAIL_CLIENT_SECRET")
+    refresh_token = os.getenv("GMAIL_REFRESH_TOKEN")
+    from_email = os.getenv("FROM_EMAIL")
 
-    if not resend_api_key:
-        return jsonify({"success": False, "message": "Falta RESEND_API_KEY"}), 400
-    if not resend_from:
-        return jsonify({"success": False, "message": "Falta RESEND_FROM_EMAIL"}), 400
+    missing = []
+    if not client_id:
+        missing.append("GMAIL_CLIENT_ID")
+    if not client_secret:
+        missing.append("GMAIL_CLIENT_SECRET")
+    if not refresh_token:
+        missing.append("GMAIL_REFRESH_TOKEN")
+    if not from_email:
+        missing.append("FROM_EMAIL")
+
+    if missing:
+        return jsonify({"success": False, "message": "Faltan variables", "missing": missing}), 400
+
+    token_resp = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        },
+        timeout=15,
+    )
+
+    if token_resp.status_code != 200:
+        return jsonify({
+            "success": False,
+            "message": "No se pudo obtener access token",
+            "status": token_resp.status_code,
+            "error": token_resp.text,
+        }), 500
 
     return jsonify({
         "success": True,
-        "message": "Variables de Resend configuradas correctamente",
-        "from": resend_from,
+        "message": "Gmail API configurada correctamente",
+        "from": from_email,
     })
 
 
